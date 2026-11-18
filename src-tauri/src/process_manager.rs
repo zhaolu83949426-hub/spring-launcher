@@ -603,7 +603,8 @@ fn build_command(
 
             #[cfg(windows)]
             let build_desc_core = format!(
-                "{resolved_mvn} -pl {module_selector} -am install -DskipTests{profile}{repo}",
+                "{resolved_mvn} -pl {module_selector} -am install -DskipTests \
+                 -Dspring-boot.repackage.skip=true -Dmaven.jar.forceCreation=true{profile}{repo}",
                 profile = profile_arg
                     .as_ref()
                     .map(|p| format!(" {p}"))
@@ -630,7 +631,16 @@ fn build_command(
                 } else {
                     resolved_mvn.to_string()
                 };
-                let mut build_cmdline = format!("{mvn_bin} -pl {module_selector} -am install -DskipTests");
+                // 关键：业务模块若配置了 spring-boot-maven-plugin:repackage，
+                // mvn install 会装出可执行 fat jar（类在 BOOT-INF/classes 下，
+                // 对依赖方不可见）。随后 spring-boot:run 从本地仓库解析这些
+                // fat jar，模块类全部加载不到（表现为 No qualifying bean）。
+                // 因此构建阶段跳过 repackage 装薄 jar；jar 插件默认有增量跳过，
+                // 需 forceCreation 确保 target 里旧 fat jar 被重建覆盖。
+                let mut build_cmdline = format!(
+                    "{mvn_bin} -pl {module_selector} -am install -DskipTests \
+                     -Dspring-boot.repackage.skip=true -Dmaven.jar.forceCreation=true"
+                );
                 if let Some(p) = &profile_arg {
                     build_cmdline.push(' ');
                     build_cmdline.push_str(p);

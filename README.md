@@ -101,6 +101,7 @@ spring-launcher/
 | 部分服务需 JDK 8，其余 JDK 17 | 支持 per-service JDK 绑定 |
 | 端口在 Nacos 远端配置，本地 yml 读不到 | 就绪用日志匹配而非端口探测；端口留空不影响启动 |
 | Maven 先 `-am install` 再执行目标服务的 `spring-boot:run` | 依赖模块修改后重启即可生效，构建失败不会启动旧代码 |
+| 业务模块配置了 `spring-boot-maven-plugin:repackage`，install 装出可执行 fat jar | 构建阶段自动加 `-Dspring-boot.repackage.skip=true -Dmaven.jar.forceCreation=true` 装薄 jar，否则 `spring-boot:run` 从仓库解析依赖时类藏在 `BOOT-INF/classes` 中不可见（典型报错：`No qualifying bean of type ...CommonApi`） |
 | `mvn spring-boot:run` 会 fork 子 JVM | 停止用 `taskkill /T /F` 杀整棵进程树 |
 | 直接关窗后服务仍在后台跑，重开应用状态丢失 | 扫描后按启动类 / jar 路径收编系统 java 进程表中的存量 JVM，接管状态管理（收编进程按 PID 巡检存活；mvn 模式重挂日志文件，jar 模式接管前日志不可回溯） |
 | jar 名 = artifactId（`<finalName>`） | jar 路径自动推算 `{module}/target/{artifactId}.jar` |
