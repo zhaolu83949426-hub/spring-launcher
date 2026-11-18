@@ -614,16 +614,23 @@ fn build_command(
                     .unwrap_or_default(),
             );
             #[cfg(windows)]
-            let desc_core = format!("{build_desc_core} && {run_desc_core}");
-
-            #[cfg(windows)]
             if file_redirect {
                 // Windows Mvn 模式：mvn.cmd 的 stdout/stderr 不能 pipe
                 // （批处理依赖控制台句柄，pipe 导致提前退出）。
                 // 先安装目标服务及其依赖链，再单独启动目标服务；构建失败时不会继续启动。
                 // raw_arg 保证 cmd.exe 拿到完整的命令行字符串，不做参数拆分。
-                let mut build_cmdline =
-                    format!("\"{resolved_mvn}\" -pl {module_selector} -am install -DskipTests");
+                //
+                // 注意两个 cmd.exe 解析器坑（实测）：
+                // 1. 括号组内以带引号的外部命令开头（`("mvn.cmd" ...)`）会静默失败
+                //    （exit 1、零输出、重定向文件被创建但永远为空），内部命令不受影响；
+                // 2. 因此 mvn 路径仅在含空格时才加引号，且不用括号分组，
+                //    改为逐命令重定向：构建阶段 `>` 截断写日志，运行阶段 `>>` 追加。
+                let mvn_bin = if resolved_mvn.contains(' ') {
+                    format!("\"{resolved_mvn}\"")
+                } else {
+                    resolved_mvn.to_string()
+                };
+                let mut build_cmdline = format!("{mvn_bin} -pl {module_selector} -am install -DskipTests");
                 if let Some(p) = &profile_arg {
                     build_cmdline.push(' ');
                     build_cmdline.push_str(p);
@@ -633,8 +640,7 @@ fn build_command(
                     build_cmdline.push_str(arg);
                 }
 
-                let mut run_cmdline =
-                    format!("\"{resolved_mvn}\" -pl {module_selector} spring-boot:run -DskipTests");
+                let mut run_cmdline = format!("{mvn_bin} -pl {module_selector} spring-boot:run -DskipTests");
                 if let Some(p) = &profile_arg {
                     run_cmdline.push(' ');
                     run_cmdline.push_str(p);
@@ -650,12 +656,16 @@ fn build_command(
                 if !extra_args.is_empty() {
                     run_cmdline.push_str(&format!(" -Dspring-boot.run.arguments={extra_args}"));
                 }
-                let full_cmdline =
-                    format!("({build_cmdline} && {run_cmdline}) > \"{log_file}\" 2>&1");
+                let full_cmdline = format!(
+                    "{build_cmdline} > \"{log_file}\" 2>&1 && {run_cmdline} >> \"{log_file}\" 2>&1"
+                );
                 let mut c = Command::new("cmd.exe");
                 c.raw_arg(format!("/S /C \"{full_cmdline}\""));
                 c.current_dir(reactor_root);
-                return (c, format!("{desc_core} > \"{log_file}\" 2>&1"));
+                return (
+                    c,
+                    format!("{build_desc_core} > \"{log_file}\" 2>&1 && {run_desc_core} >> \"{log_file}\" 2>&1"),
+                );
             }
 
             // 非 Windows 或非文件重定向模式：直接运行 mvn
